@@ -1,5 +1,5 @@
 # Workshop MLOps 
-
+w
 Welcome aboard the MLOpsPython team !
 
 You will contribute to the MLOpsPython project.
