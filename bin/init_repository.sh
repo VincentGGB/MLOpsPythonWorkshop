@@ -60,8 +60,9 @@ gh secret set AZURE_SUBSCRIPTION_ID --body "$subscriptionId" --env "$environment
 escapedJsonCredentials=$(echo "$credentials" | jq -c @json)
 echo "Escaped JSON Credentials: $escapedJsonCredentials"
 gh secret set AZURE_CREDENTIALS --body "$escapedJsonCredentials" --env "$environmentName"
-gh secret set DOCKER_PASSWORD --body "robertcarry" --env "$environmentName"
-gh secret set DOCKER_USENAME --body "dckr_pat_e2lZ9YgpMt8APE-Qxzn89u6mt28" --env "$environmentName"
+gh secret set DOCKER_USERNAME --body "dckr_pat_5YXumF2QyS7_FMbsC-s24vbO0Uo" --env "$environmentName"
+gh secret set DOCKER_PASSWORD --body "vincentggb" --env "$environmentName"
+
 
 # Run the GitHub workflow
 gh workflow enable main.yml
