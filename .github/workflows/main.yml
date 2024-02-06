@@ -10,12 +10,13 @@ env:
   PNPM_VERSION: 8.5.1
   PYTHON_VERSION: 3.10.13
   NODE_VERSION: 18
-  AZURE_RESOURCE_GROUP_NAME: "azure-ml-vincentggb"
+  AZURE_RESOURCE_GROUP_NAME: "azure-ml-yolw"
   AZURE_LOCATION: "northeurope"
-  AZURE_ML_WORKSPACE_NAME: "cats-dogs-vincentggb"
-  AZURE_WEBAPP_NAME: "cats-dogs-vincentggb"
-  DELETE_WEBAPP: "true"
-  DOCKER_IMAGE_NAME: "robertcarry/mlopspython-vincentggb"
+  AZURE_ML_WORKSPACE_NAME: "cats-dogs-yolw"
+  AZURE_WEBAPP_NAME: "cats-dogs-yolw"
+  DELETE_WEBAPP: "false"
+  DOCKER_API_IMAGE_NAME: "guillaumechervetlunique/mlopspython-api"
+  DOCKER_WEBAPP_IMAGE_NAME: "guillaumechervetlunique/mlopspython-webapp"
 
 permissions:
   id-token: write
@@ -148,7 +149,7 @@ jobs:
       EXPERIMENT_ID: ${{ steps.train.outputs.EXPERIMENT_ID }}
       AZURE_RESOURCE_GROUP_NAME: ${{ env.AZURE_RESOURCE_GROUP_NAME }}
       AZURE_ML_WORKSPACE_NAME: ${{ env.AZURE_ML_WORKSPACE_NAME }}
-      DOCKER_IMAGE_NAME: ${{ env.DOCKER_IMAGE_NAME }}
+      DOCKER_API_IMAGE_NAME: ${{ env.DOCKER_API_IMAGE_NAME }}
     steps:
     - uses: actions/checkout@v3
       with:
@@ -171,27 +172,14 @@ jobs:
         creds: ${{secrets.AZURE_CREDENTIALS}}
     - name: Run Train Pipeline
       run: |
-          poetry install
-          az extension add -n ml
-          az group create --name ${{ env.AZURE_RESOURCE_GROUP_NAME }} --location ${{ env.AZURE_LOCATION }}
-          az ml workspace create -n ${{ env.AZURE_ML_WORKSPACE_NAME }} -g ${{ env.AZURE_RESOURCE_GROUP_NAME }} 
-          cwd=$(pwd)
-          cd ./extraction
-          chmod +x ./init_dataset.sh 
-          ./init_dataset.sh ${{ env.AZURE_RESOURCE_GROUP_NAME }} ${{ env.AZURE_ML_WORKSPACE_NAME }} 
-          cd $cwd
-          cd ./label_split_data
-          chmod +x ./init_dataset.sh
-          ./init_dataset.sh ${{ env.AZURE_RESOURCE_GROUP_NAME }} ${{ env.AZURE_ML_WORKSPACE_NAME }}
-          cd $cwd
-          #poetry run python azureml_run_test.py > train_output.txt
-          poetry run python azureml_run_pipeline.py \
-            --subscription_id ${{ secrets.AZURE_SUBSCRIPTION_ID }}  \
-            --resource_group_name ${{ env.AZURE_RESOURCE_GROUP_NAME }} \
-            --workspace_name ${{ env.AZURE_ML_WORKSPACE_NAME }} \
-            --location ${{ env.AZURE_LOCATION }} \
-            --tags "{\"git\":\"${{ github.head_ref }}.${{ github.sha }}\",\"version\":\"${{ needs.tags.outputs.new_version }}\",\"triggering_actor\":\"${{github.triggering_actor}}\"}" \
-            > train_output.txt
+          chmod +x ./setup_AzureML.sh
+          ./setup_AzureML.sh ${{ secrets.AZURE_SUBSCRIPTION_ID }} ${{ env.AZURE_RESOURCE_GROUP_NAME }} ${{ env.AZURE_ML_WORKSPACE_NAME }} ${{ env.AZURE_LOCATION }}
+          chmod +x ./run_AzureML.sh
+          ./run_AzureML.sh ${{ secrets.AZURE_SUBSCRIPTION_ID }} \
+              ${{ env.AZURE_RESOURCE_GROUP_NAME }} \
+              ${{ env.AZURE_ML_WORKSPACE_NAME }} \
+              ${{ env.AZURE_LOCATION }} \
+              "{\"git_head_ref\":\"${{ github.head_ref }}\",\"git\":\"${{ github.head_ref }}.${{ github.sha }}\",\"version\":\"${{ needs.tags.outputs.new_version }}\",\"triggering_actor\":\"${{github.triggering_actor}}\"}" > train_output.txt
           cat train_output.txt
       working-directory: train
     - name: download model
@@ -248,11 +236,11 @@ jobs:
         asset_path: ./model/mlopspython_model.zip
         asset_name: mlopspython_model.zip
         asset_content_type: application/zip
-  build_docker:
+  build_docker_api:
     needs: [train, tags]
-    uses: ./.github/workflows/docker.yml
+    uses: ./.github/workflows/docker_with_model.yml
     with:
-      image_name: ${{ needs.train.outputs.DOCKER_IMAGE_NAME }}
+      image_name: ${{ needs.train.outputs.DOCKER_API_IMAGE_NAME }}
       image_version: ${{ needs.tags.outputs.new_version }}
       image_build_args: ""
       image_context: ./production/api
@@ -267,7 +255,7 @@ jobs:
   deploy:
     environment: MLOpsPython
     runs-on: ubuntu-latest
-    needs: [tags, build_docker]
+    needs: [tags, build_docker_api, build_docker_webapp]
     steps:
     - name: azure login
       uses: azure/login@v1
@@ -276,7 +264,7 @@ jobs:
     - name: Deploy container
       run: |
         # https://learn.microsoft.com/en-us/cli/azure/container?view=azure-cli-latest#az-container-create()
-        az container create --resource-group ${{ env.AZURE_RESOURCE_GROUP_NAME}} --name ${{ env.AZURE_WEBAPP_NAME }} --dns-name-label ${{ env.AZURE_WEBAPP_NAME }} --image docker.io/${{ env.DOCKER_IMAGE_NAME }}:${{ needs.tags.outputs.new_version }} --ports 5000
+        az container create --resource-group ${{ env.AZURE_RESOURCE_GROUP_NAME}} --name ${{ env.AZURE_WEBAPP_NAME }} --dns-name-label ${{ env.AZURE_WEBAPP_NAME }} --image docker.io/${{ env.DOCKER_API_IMAGE_NAME }}:${{ needs.tags.outputs.new_version }} --ports 5000
   integration_tests:
     environment: MLOpsPython
     runs-on: ubuntu-latest
@@ -314,8 +302,11 @@ jobs:
           if [ "${{ env.DELETE_WEBAPP }}" = "true" ]; then
             az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP_NAME}} --name ${{ env.AZURE_WEBAPP_NAME }} --yes
           fi
-  webapp:
+  webapp_unit_tests:
     runs-on: ubuntu-latest
+    environment: MLOpsPython
+    outputs:
+      DOCKER_WEBAPP_IMAGE_NAME: ${{ env.DOCKER_WEBAPP_IMAGE_NAME }}
     steps:
     - uses: actions/checkout@v3
     - uses: dorny/paths-filter@v2
@@ -327,23 +318,38 @@ jobs:
     - uses: actions/setup-node@v2
       with:
         node-version: '18'
-    - name: Build webapp
+    - name: Install dependencies > UnitTest > Build
       working-directory: production/webapp
       run: |
-        npm ci
-        npm run build
+         npm ci
+         npm run coverage
+         npm run build
     - name: Upload WebApp Build Artifact
       uses: actions/upload-artifact@v2
       with:
         name: Publish webapp
         path: ./production/webapp/build
+  build_docker_webapp:
+    needs: [webapp_unit_tests, tags]
+    uses: ./.github/workflows/docker.yml
+    with:
+      image_name: ${{ needs.webapp_unit_tests.outputs.DOCKER_WEBAPP_IMAGE_NAME }}
+      image_version: ${{ needs.tags.outputs.new_version }}
+      image_build_args: ""
+      image_context: ./production/webapp
+      image_file: "./production/webapp/Dockerfile"
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
 
   change_log:
     runs-on: ubuntu-latest
     needs: [ integration_tests ]
+    environment: MLOpsPython
     steps:
       - uses: actions/checkout@v3
         with:
+          token: ${{ secrets.GIT_TOKEN }}
           fetch-depth: 0
       - name: Commit and push
         if: github.ref == 'refs/heads/main'

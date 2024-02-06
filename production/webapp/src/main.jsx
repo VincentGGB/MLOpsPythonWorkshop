@@ -1,18 +1,18 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css';
+import './main.css';
 import App from './App';
 import {OidcProvider, OidcSecure} from "@axa-fr/react-oidc";
 
 const configuration = {
- client_id: 'interactive.public',
+    client_id: 'interactive.public',
     redirect_uri: window.location.origin+'#/authentication/callback',
     silent_redirect_uri: window.location.origin+'#/authentication/silent-callback',
     //silent_login_uri: window.location.origin+'/authentication/silent-login',
     scope: 'openid profile email api offline_access',
     authority: 'https://demo.duendesoftware.com',
-    refresh_time_before_tokens_expiration_in_second: 10,
-    //service_worker_relative_url:'/OidcServiceWorker.js',
+    // refresh_time_before_tokens_expiration_in_second: 10,
+    // service_worker_relative_url:'/OidcServiceWorker.js',
     service_worker_only: false,
 };
 

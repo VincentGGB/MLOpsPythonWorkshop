@@ -60,11 +60,13 @@ $credentials=$(az ad sp create-for-rbac --name "mlapp" --role contributor --scop
 #gh secret set AZURE_TENANT_ID --body $tenantId --env $environmentName
 gh secret set AZURE_SUBSCRIPTION_ID --body $subscriptionId --env $environmentName
 #gh secret set AZURE_CLIENT_ID --body $appId --env $environmentName
-$jsonCredentials = ($credentials | ConvertFrom-Json | ConvertTo-Json -Compress).Replace("`"", "\`"")
+$jsonCredentials=($credentials | ConvertFrom-Json | ConvertTo-Json -Compress).Replace("`"", "\`"")
 echo $jsonCredentials
 gh secret set AZURE_CREDENTIALS --body "$jsonCredentials" --env "$environmentName"
-gh secret set DOCKER_PASSWORD --body "robertcarry" --env "$environmentName"
-gh secret set DOCKER_USENAME --body "dckr_pat_e2lZ9YgpMt8APE-Qxzn89u6mt28" --env "$environmentName"
+gh secret set DOCKER_PASSWORD --body "dckr_pat_e2lZ9YgpMt8APE-Qxzn89u6mt28" --env "$environmentName"
+gh secret set DOCKER_USERNAME --body "robertcarry" --env "$environmentName"
+$git_token=$(gh auth token)
+gh secret set GIT_TOKEN --body "$git_token" --env "$environmentName"
 
 # Run workflow
 gh workflow enable main.yml
